@@ -1,0 +1,24 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "rc_car_app.c"
+        "rc_car_camera.c"
+        "rc_car_motor.c"
+    INCLUDE_DIRS
+        "."
+    EMBED_FILES
+        "assets/fallback.jpg"
+    REQUIRES
+        comm_wifi
+        esp32-camera
+        esp_driver_gpio
+        esp_driver_ledc
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_timer
+        esp_wifi
+        freertos
+        log
+        nvs_flash
+)

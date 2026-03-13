@@ -1,0 +1,17 @@
+# Local build outputs and intermediate artifacts
+/build/
+/build-*/
+
+# ESP-IDF generated logs and local metadata
+/log/
+sdkconfig.old
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Local editor state
+.vscode/
+.idea/

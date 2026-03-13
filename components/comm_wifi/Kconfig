@@ -1,0 +1,30 @@
+menu "COMM WiFi"
+    config COMM_WIFI_SSID
+        string "WiFi SSID"
+        default "YOUR_SSID"
+
+    config COMM_WIFI_PASSWORD
+        string "WiFi Password"
+        default "YOUR_PASSWORD"
+
+    config COMM_WIFI_UDP_PORT
+        int "UDP server port"
+        default 3333
+
+    config COMM_WIFI_OTA_URL
+        string "OTA firmware URL"
+        default "https://raw.githubusercontent.com/git-beginner-123/OTA/main/ota_bins/stem/latest.bin"
+        help
+            HTTP/HTTPS URL used by WIFI OTA experiment.
+            Examples:
+            STEM: https://raw.githubusercontent.com/<owner>/<repo>/<branch>/ota_bins/stem/latest.bin
+            GAME GO: https://raw.githubusercontent.com/<owner>/<repo>/<branch>/ota_bins/game/go/latest.bin
+
+    config COMM_WIFI_CONNECT_TIMEOUT_MS
+        int "WiFi connect timeout (ms)"
+        default 20000
+
+    config COMM_WIFI_OTA_HTTP_TIMEOUT_MS
+        int "OTA HTTP timeout (ms)"
+        default 15000
+endmenu
