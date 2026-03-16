@@ -13,12 +13,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 #include "rc_car_camera.h"
 #include "rc_car_config.h"
 #include "rc_car_motor.h"
 
 static const char *TAG = "rc_car_app";
 #define PART_BOUNDARY "123456789000000000000987654321"
+static const int64_t kStreamSlowFrameWarnMs = 800;
+static const uint16_t kCtrlUdpPort = 3333;
 static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
@@ -31,6 +35,7 @@ typedef struct {
 typedef struct {
     httpd_handle_t camera_httpd;
     httpd_handle_t stream_httpd;
+    TaskHandle_t ctrl_udp_task;
     RcCarMotorCmd last_cmd;
     uint32_t cmd_count;
     int64_t last_cmd_ms;
@@ -39,6 +44,7 @@ typedef struct {
 static rc_car_state_t s_state = {
     .camera_httpd = NULL,
     .stream_httpd = NULL,
+    .ctrl_udp_task = NULL,
     .last_cmd = kRcCarMotorCmdStop,
 };
 
@@ -103,6 +109,57 @@ static void apply_command(RcCarMotorCmd cmd)
     s_state.cmd_count++;
     s_state.last_cmd_ms = now_ms();
     RcCarMotor_Apply(cmd);
+}
+
+static void ctrl_udp_task(void *arg)
+{
+    (void)arg;
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "udp ctrl socket create failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(kCtrlUdpPort),
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+    };
+    if (bind(sock, (const struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        ESP_LOGE(TAG, "udp ctrl bind failed");
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct timeval tv = {
+        .tv_sec = 0,
+        .tv_usec = 500000,
+    };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ESP_LOGI(TAG, "udp ctrl listening on port %u", (unsigned)kCtrlUdpPort);
+
+    while (true) {
+        char buf[32];
+        struct sockaddr_in from_addr;
+        socklen_t from_len = sizeof(from_addr);
+        int len = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&from_addr, &from_len);
+        if (len < 0) {
+            continue;
+        }
+        buf[len] = '\0';
+
+        RcCarMotorCmd cmd = kRcCarMotorCmdStop;
+        if (!parse_cmd(buf, &cmd)) {
+            ESP_LOGW(TAG, "udp ctrl invalid cmd: %s", buf);
+            continue;
+        }
+
+        ESP_LOGI(TAG, "udp ctrl cmd=%s", buf);
+        apply_command(cmd);
+    }
 }
 
 static esp_err_t root_get_handler(httpd_req_t *req)
@@ -291,10 +348,6 @@ static esp_err_t capture_get_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-    size_t fb_len = 0;
-    int64_t start_us = esp_timer_get_time();
-
-    ESP_LOGI(TAG, "http GET /capture");
 
     fb = esp_camera_fb_get();
     if (!fb) {
@@ -322,7 +375,6 @@ static esp_err_t capture_get_handler(httpd_req_t *req)
 
     if (res == ESP_OK) {
         if (fb->format == PIXFORMAT_JPEG) {
-            fb_len = fb->len;
             res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
         } else {
             jpg_chunking_t chunk = {
@@ -333,21 +385,15 @@ static esp_err_t capture_get_handler(httpd_req_t *req)
             if (res == ESP_OK) {
                 res = httpd_resp_send_chunk(req, NULL, 0);
             }
-            fb_len = chunk.len;
         }
     }
 
     esp_camera_fb_return(fb);
-    if (res == ESP_OK) {
-        ESP_LOGI(TAG, "capture sent: %u bytes in %lld ms", (unsigned)fb_len,
-                 (long long)((esp_timer_get_time() - start_us) / 1000));
-    }
     return res;
 }
 
 static esp_err_t ping_get_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "http GET /ping");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -363,8 +409,6 @@ static esp_err_t stream_get_handler(httpd_req_t *req)
     uint8_t *jpg_buf = NULL;
     char part_buf[128];
     int64_t last_frame_us = 0;
-
-    ESP_LOGI(TAG, "http GET /stream open");
 
     res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
     if (res != ESP_OK) {
@@ -432,14 +476,13 @@ static esp_err_t stream_get_handler(httpd_req_t *req)
             int64_t now_us = esp_timer_get_time();
             int64_t frame_time_ms = (now_us - last_frame_us) / 1000;
             last_frame_us = now_us;
-            if (frame_time_ms > 0) {
-                ESP_LOGI(TAG, "bsp stream: %u bytes, %lld ms, %.1f fps",
+            if (frame_time_ms >= kStreamSlowFrameWarnMs) {
+                ESP_LOGW(TAG, "slow stream frame: %u bytes, %lld ms, %.1f fps",
                          (unsigned)jpg_buf_len, frame_time_ms, 1000.0f / (float)frame_time_ms);
             }
         }
     }
 
-    ESP_LOGI(TAG, "http GET /stream closed");
     return res;
 }
 
@@ -587,6 +630,9 @@ void RcCarApp_Start(void)
     if (!RcCarMotor_Init()) {
         ESP_LOGE(TAG, "motor init failed");
         return;
+    }
+    if (!s_state.ctrl_udp_task) {
+        xTaskCreate(ctrl_udp_task, "rc_ctrl_udp", 4096, NULL, 5, &s_state.ctrl_udp_task);
     }
     if (!start_http_server()) {
         ESP_LOGE(TAG, "http server start failed");

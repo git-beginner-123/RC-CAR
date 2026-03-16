@@ -59,9 +59,27 @@ bool RcCarCamera_Init(void)
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor) {
         sensor->set_quality(sensor, RC_CAR_CAM_JPEG_QUALITY);
+        sensor->set_framesize(sensor, RC_CAR_CAM_FRAME_SIZE);
+
+        // Start from a conservative baseline first: stable indoor auto-exposure,
+        // neutral color, and enough JPEG quality to verify real scene detail.
         sensor->set_brightness(sensor, 0);
         sensor->set_contrast(sensor, 1);
         sensor->set_saturation(sensor, 0);
+        sensor->set_sharpness(sensor, 0);
+
+        sensor->set_gain_ctrl(sensor, 1);
+        sensor->set_exposure_ctrl(sensor, 1);
+        sensor->set_aec2(sensor, 1);
+        sensor->set_ae_level(sensor, 0);
+        sensor->set_awb_gain(sensor, 1);
+        sensor->set_wb_mode(sensor, 0);
+
+        sensor->set_dcw(sensor, 1);
+        sensor->set_bpc(sensor, 1);
+        sensor->set_wpc(sensor, 1);
+        sensor->set_raw_gma(sensor, 1);
+        sensor->set_lenc(sensor, 1);
     }
 
     s_cam.ready = true;

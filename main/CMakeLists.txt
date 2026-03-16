@@ -19,6 +19,7 @@ idf_component_register(
         esp_timer
         esp_wifi
         freertos
+        lwip
         log
         nvs_flash
 )

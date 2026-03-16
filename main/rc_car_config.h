@@ -26,16 +26,16 @@
 #define RC_CAR_CAM_RESET_IO      (-1)
 #define RC_CAR_CAM_XCLK_FREQ_HZ  20000000
 #define RC_CAR_CAM_FRAME_SIZE    FRAMESIZE_QVGA
-#define RC_CAR_CAM_JPEG_QUALITY  18
+#define RC_CAR_CAM_JPEG_QUALITY  10
 #define RC_CAR_CAM_FB_COUNT      2
 
-// Motor defaults are intentionally disabled until the real H-bridge pins are known.
-// Fill these values with your board wiring before driving hardware.
-#define RC_CAR_MOTOR_LEFT_IN1    (-1)
-#define RC_CAR_MOTOR_LEFT_IN2    (-1)
+// MX1919 4-wire motor driver mapping:
+// G1/G2 -> motor A IN1/IN2, G42/G41 -> motor B IN3/IN4.
+#define RC_CAR_MOTOR_LEFT_IN1    1
+#define RC_CAR_MOTOR_LEFT_IN2    2
 #define RC_CAR_MOTOR_LEFT_PWM    (-1)
-#define RC_CAR_MOTOR_RIGHT_IN1   (-1)
-#define RC_CAR_MOTOR_RIGHT_IN2   (-1)
+#define RC_CAR_MOTOR_RIGHT_IN1   42
+#define RC_CAR_MOTOR_RIGHT_IN2   41
 #define RC_CAR_MOTOR_RIGHT_PWM   (-1)
 
 #define RC_CAR_MOTOR_PWM_FREQ_HZ 20000
